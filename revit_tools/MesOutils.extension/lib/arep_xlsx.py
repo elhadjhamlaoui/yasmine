@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Lecteur .xlsx minimal (sans Excel, sans openpyxl) : compatible IronPython 2.7 et CPython 3.
 
-read_xlsx(path) -> (entetes, lignes)
-  entetes : liste des titres de la 1re ligne
-  lignes  : liste de dict {titre: texte}. Toutes les valeurs sont du texte (cellule vide = u"").
+read_xlsx(path)      -> (entetes, lignes) pour la 1re feuille, 1re ligne = titres
+read_xlsx_grid(path) -> liste de lignes (listes de texte) de TOUTES les feuilles, sans titres
+Toutes les valeurs sont du texte (cellule vide = u"").
 """
 import re
 import zipfile
@@ -26,32 +26,21 @@ def _text_of(node):
     return u"".join(t.text or u"" for t in node.iter(NS + "t"))
 
 
-def _first_sheet_path(z):
+def _sheet_paths(z):
     wb = ET.fromstring(z.read("xl/workbook.xml"))
-    first = wb.find(NS + "sheets").find(NS + "sheet")
-    rid = first.get(NS_REL + "id")
     rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
-    for rel in rels.findall(NS_PKG + "Relationship"):
-        if rel.get("Id") == rid:
-            target = rel.get("Target")
-            if target.startswith("/"):
-                return target.lstrip("/")
-            return "xl/" + target
-    return "xl/worksheets/sheet1.xml"
+    targets = dict((r.get("Id"), r.get("Target")) for r in rels.findall(NS_PKG + "Relationship"))
+    paths = []
+    for sh in wb.find(NS + "sheets").findall(NS + "sheet"):
+        target = targets.get(sh.get(NS_REL + "id"))
+        if target is None:
+            continue
+        paths.append(target.lstrip("/") if target.startswith("/") else "xl/" + target)
+    return paths or ["xl/worksheets/sheet1.xml"]
 
 
-def read_xlsx(path):
-    z = zipfile.ZipFile(path)
-    try:
-        shared = []
-        if "xl/sharedStrings.xml" in z.namelist():
-            root = ET.fromstring(z.read("xl/sharedStrings.xml"))
-            shared = [_text_of(si) for si in root.findall(NS + "si")]
-
-        sheet = ET.fromstring(z.read(_first_sheet_path(z)))
-    finally:
-        z.close()
-
+def _parse_sheet(xml_bytes, shared):
+    sheet = ET.fromstring(xml_bytes)
     table = []
     for row in sheet.iter(NS + "row"):
         values = {}
@@ -72,10 +61,26 @@ def read_xlsx(path):
         if values:
             width = max(values) + 1
             table.append([values.get(i, u"") for i in range(width)])
+    return table
 
+
+def _read_all_sheets(path):
+    z = zipfile.ZipFile(path)
+    try:
+        shared = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            root = ET.fromstring(z.read("xl/sharedStrings.xml"))
+            shared = [_text_of(si) for si in root.findall(NS + "si")]
+        return [_parse_sheet(z.read(p), shared) for p in _sheet_paths(z)]
+    finally:
+        z.close()
+
+
+def read_xlsx(path):
+    sheets = _read_all_sheets(path)
+    table = sheets[0] if sheets else []
     if not table:
         return [], []
-
     headers = table[0]
     rows = []
     for raw in table[1:]:
@@ -84,3 +89,10 @@ def read_xlsx(path):
         raw = raw + [u""] * (len(headers) - len(raw))
         rows.append(dict((h, raw[i]) for i, h in enumerate(headers) if h))
     return headers, rows
+
+
+def read_xlsx_grid(path):
+    grid = []
+    for table in _read_all_sheets(path):
+        grid.extend(row for row in table if any(row))
+    return grid

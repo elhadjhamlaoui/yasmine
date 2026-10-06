@@ -46,8 +46,22 @@ def get_name(element):
     try:
         return element.Name
     except Exception:
-        p = element.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_NAME)
-        return p.AsString() if p else u""
+        pass
+    for bip in (BuiltInParameter.ALL_MODEL_TYPE_NAME, BuiltInParameter.SYMBOL_NAME_PARAM,
+                BuiltInParameter.DATUM_TEXT, BuiltInParameter.ROOM_NAME):
+        try:
+            p = element.get_Parameter(bip)
+            if p is not None and p.AsString():
+                return p.AsString()
+        except Exception:
+            pass
+    return u""
+
+
+def param_text(element, bip):
+    """Texte d'un parametre integre (ex. ROOM_NUMBER), u"" si absent."""
+    p = element.get_Parameter(bip)
+    return (p.AsString() or u"") if p is not None else u""
 
 
 # ------------------------------------------------------------ parametres
