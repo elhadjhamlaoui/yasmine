@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Lecteur .xlsx minimal (sans Excel, sans openpyxl) : compatible IronPython 2.7 et CPython 3.
 
-read_xlsx(path)      -> (entetes, lignes) pour la 1re feuille, 1re ligne = titres
+read_xlsx(path, sheet=0) -> (entetes, lignes) pour la feuille n° `sheet`, 1re ligne = titres
+sheet_names(path)    -> noms des feuilles
 read_xlsx_grid(path) -> liste de lignes (listes de texte) de TOUTES les feuilles, sans titres
 Toutes les valeurs sont du texte (cellule vide = u"").
 """
@@ -76,9 +77,18 @@ def _read_all_sheets(path):
         z.close()
 
 
-def read_xlsx(path):
+def sheet_names(path):
+    z = zipfile.ZipFile(path)
+    try:
+        wb = ET.fromstring(z.read("xl/workbook.xml"))
+        return [sh.get("name") for sh in wb.find(NS + "sheets").findall(NS + "sheet")]
+    finally:
+        z.close()
+
+
+def read_xlsx(path, sheet=0):
     sheets = _read_all_sheets(path)
-    table = sheets[0] if sheets else []
+    table = sheets[sheet] if len(sheets) > sheet else []
     if not table:
         return [], []
     headers = table[0]
